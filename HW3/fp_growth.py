@@ -27,7 +27,7 @@ class FpNode:
         self.parent = parent
 
     def __repr__(self) -> str:
-        return f"FpNode(item={self.item}, count={self.count}, children={repr(self.children)})"
+        return f"FpNode(item={self.item!r}, count={self.count!r}, children={self.children!r})"
 
     def add_transaction(self, items: List[str], node_links: Dict[str, List["FpNode"]]) -> None:
         """Add transaction to tree to build it up."""
@@ -92,12 +92,12 @@ def make_support_count_map(transactions: List[List[str]]) -> Dict[str, int]:
     return support_counts
 
 
-def extract_frequent_patterns(conditional_fp_root: FpNode, base_item: str) -> List[Tuple[str]]:
+def extract_frequent_patterns(conditional_fp_root: FpNode, base_items: List[str]) -> List[Tuple[str]]:
     """Extract frequent patterns from a conditional FP-tree for an item."""
     assert conditional_fp_root.is_single_path()
 
     current_node = conditional_fp_root
-    items = {base_item}
+    items = set(base_items)
 
     while True:
         if current_node.item:
@@ -117,8 +117,15 @@ def extract_frequent_patterns(conditional_fp_root: FpNode, base_item: str) -> Li
     return patterns
 
 
-def mine(node_links: Dict[str, List[FpNode]], item_names: List[str]) -> Set[Tuple[str]]:
+def mine(
+    node_links: Dict[str, List[FpNode]],
+    item_names: List[str],
+    conditional_items: Optional[List[str]] = None
+) -> Set[Tuple[str]]:
     """Recursively mine frequent patterns from an FP-tree via its node links."""
+    if not conditional_items:
+        conditional_items = []
+
     # Generate conditional pattern bases.
     conditional_pattern_bases = {item_id: {} for item_id in item_names}
     for item_id, item_nodes in node_links.items():
@@ -131,17 +138,61 @@ def mine(node_links: Dict[str, List[FpNode]], item_names: List[str]) -> Set[Tupl
         conditional_tree = FpNode()
         conditional_tree_node_links = {item_id: [] for item_id in item_names}
 
+        support_counts = make_support_count_map(item_conditional_pattern_bases)
         for conditional_pattern_base in item_conditional_pattern_bases:
-            conditional_tree.add_transaction(list(conditional_pattern_base), conditional_tree_node_links)
+            sorted_transaction = sorted(
+                list(conditional_pattern_base),
+                key=lambda item: support_counts[item],
+                reverse=True
+            )
+            conditional_tree.add_transaction(sorted_transaction, conditional_tree_node_links)
 
         if conditional_tree.is_single_path():
-            for pattern in extract_frequent_patterns(conditional_tree, item_id):
+            for pattern in extract_frequent_patterns(conditional_tree, conditional_items + [item_id]):
                 patterns.add(pattern)
         else:
-            # TODO: Recurse!
-            pass
+            patterns = patterns.union(mine(conditional_tree_node_links, item_names, conditional_items + [item_id]))
 
     return patterns
+
+
+def print_association_if_valid(
+    transactions: List[List[str]],
+    itemset: Set[str],
+    subset: Set[str],
+    min_sup: float,
+    min_conf: float,
+) -> None:
+    """Dump association rules to the console if they're valid (i.e., meeting the support and confidence thresholds)."""
+    # Cache a string representation of patterns already seen to avoid printing the same rules twice.
+    try:
+        patterns_seen = print_association_if_valid._patterns_seen
+    except AttributeError:
+        patterns_seen = []
+        print_association_if_valid._patterns_seen = patterns_seen
+
+    pattern_key = (tuple(sorted(itemset)), tuple(sorted(subset)))
+    if pattern_key in patterns_seen:
+        # We've seen this pattern before, so don't bother processing further.
+        return
+    else:
+        patterns_seen.append(pattern_key)
+
+    support_count_l = 0
+    support_count_s = 0
+
+    for transaction in transactions:
+        if all(item in transaction for item in itemset):
+            support_count_l += 1
+
+        if all(item in transaction for item in subset):
+            support_count_s += 1
+
+    support = support_count_l / len(transactions)
+    confidence = support_count_l / support_count_s
+
+    if support >= min_sup and confidence > min_conf:
+        print(f"{subset!r} --> {itemset.difference(subset)!r} (S={round(support, 3)}, C={round(confidence, 3)})")
 
 
 def main() -> int:
@@ -173,7 +224,18 @@ def main() -> int:
         sorted_transaction = sorted(transaction, key=lambda item: support_counts[item], reverse=True)
         fp_tree_root.add_transaction(sorted_transaction, node_links)
 
-    print(mine(node_links, item_names=list(support_counts.keys())))
+    # Kick off the recursive mining.
+    frequent_patterns = mine(node_links, item_names=list(support_counts.keys()))
+
+    # Once mined, take the frequent patterns and use their subsets to test for association.
+    for pattern in frequent_patterns:
+        subsets = set()
+        for subsequence_length in range(1, len(pattern)):
+            subsets = subsets.union(set(combinations(pattern, subsequence_length)))
+
+        for subset in subsets:
+            print_association_if_valid(
+                transactions_set, set(pattern), set(subset), args.min_sup, args.min_conf)
 
     return EXIT_CODE_SUCCESS
 
