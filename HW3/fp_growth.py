@@ -8,7 +8,8 @@ Written for CSDS 435: Data Mining (Spring 2021)
 import os
 import sys
 from argparse import ArgumentParser
-from typing import Dict, List, Optional
+from itertools import combinations
+from typing import Dict, List, Optional, Set, Tuple
 
 EXIT_CODE_SUCCESS = 0
 TRANSACTIONS_FILE_PATH = os.path.join(os.path.dirname(__file__), "table_1.csv")
@@ -60,6 +61,22 @@ class FpNode:
 
         return return_value
 
+    def get_conditional_pattern_base(self) -> Dict[Tuple[str], int]:
+        """Get a single conditional pattern base and its count as a single-element dictionary."""
+        parent_items: List[str] = []
+        current_node = self.parent
+
+        while current_node.item:
+            parent_items.append(current_node.item)
+            current_node = current_node.parent
+
+        if parent_items:
+            return_value = {tuple(reversed(parent_items)): self.count}
+        else:
+            return_value = {}
+
+        return return_value
+
 
 def make_support_count_map(transactions: List[List[str]]) -> Dict[str, int]:
     """Make support count map from transactions."""
@@ -73,6 +90,58 @@ def make_support_count_map(transactions: List[List[str]]) -> Dict[str, int]:
                 support_counts[item] = 1
 
     return support_counts
+
+
+def extract_frequent_patterns(conditional_fp_root: FpNode, base_item: str) -> List[Tuple[str]]:
+    """Extract frequent patterns from a conditional FP-tree for an item."""
+    assert conditional_fp_root.is_single_path()
+
+    current_node = conditional_fp_root
+    items = {base_item}
+
+    while True:
+        if current_node.item:
+            items.add(current_node.item)
+
+        if not current_node.children:
+            break
+        else:
+            current_node = current_node.children[0]
+
+    patterns = []
+
+    # Only get patterns of length 2 or larger since patterns of length 1 can't be used to construct rules.
+    for subsequence_length in range(2, len(items) + 1):
+        patterns += combinations(items, subsequence_length)
+
+    return patterns
+
+
+def mine(node_links: Dict[str, List[FpNode]], item_names: List[str]) -> Set[Tuple[str]]:
+    """Recursively mine frequent patterns from an FP-tree via its node links."""
+    # Generate conditional pattern bases.
+    conditional_pattern_bases = {item_id: {} for item_id in item_names}
+    for item_id, item_nodes in node_links.items():
+        for item_node in item_nodes:
+            conditional_pattern_bases[item_id].update(item_node.get_conditional_pattern_base())
+
+    # Use conditional pattern bases to make conditional FP-trees.
+    patterns = set()
+    for item_id, item_conditional_pattern_bases in conditional_pattern_bases.items():
+        conditional_tree = FpNode()
+        conditional_tree_node_links = {item_id: [] for item_id in item_names}
+
+        for conditional_pattern_base in item_conditional_pattern_bases:
+            conditional_tree.add_transaction(list(conditional_pattern_base), conditional_tree_node_links)
+
+        if conditional_tree.is_single_path():
+            for pattern in extract_frequent_patterns(conditional_tree, item_id):
+                patterns.add(pattern)
+        else:
+            # TODO: Recurse!
+            pass
+
+    return patterns
 
 
 def main() -> int:
@@ -103,6 +172,8 @@ def main() -> int:
         # Recall that items must be sorted from highest to lowest support count.
         sorted_transaction = sorted(transaction, key=lambda item: support_counts[item], reverse=True)
         fp_tree_root.add_transaction(sorted_transaction, node_links)
+
+    print(mine(node_links, item_names=list(support_counts.keys())))
 
     return EXIT_CODE_SUCCESS
 
