@@ -28,7 +28,8 @@ class FpNode:
     def __repr__(self) -> str:
         return f"FpNode(item={self.item}, count={self.count}, children={repr(self.children)})"
 
-    def add_transaction(self, items: List[str]) -> None:
+    def add_transaction(self, items: List[str], node_links: Dict[str, List["FpNode"]]) -> None:
+        """Add transaction to tree to build it up."""
         if items:
             next_item = items.pop(0)
 
@@ -40,10 +41,24 @@ class FpNode:
             if not child_node_for_item:
                 child_node_for_item = FpNode(parent=self)
                 child_node_for_item.item = next_item
+
                 self.children.append(child_node_for_item)
+                node_links[next_item].append(child_node_for_item)
 
             child_node_for_item.count += 1
-            child_node_for_item.add_transaction(items)
+            child_node_for_item.add_transaction(items, node_links)
+
+    def is_single_path(self) -> bool:
+        """Determine if tree contains a single path."""
+        if not self.children:
+            return_value = True
+        elif len(self.children) > 1:
+            return_value = False
+        else:
+            child = self.children[0]  # guaranteed to have exactly 1 by if and elif clauses above
+            return_value = child.is_single_path()
+
+        return return_value
 
 
 def make_support_count_map(transactions: List[List[str]]) -> Dict[str, int]:
@@ -87,7 +102,7 @@ def main() -> int:
     for transaction in transactions_set:
         # Recall that items must be sorted from highest to lowest support count.
         sorted_transaction = sorted(transaction, key=lambda item: support_counts[item], reverse=True)
-        fp_tree_root.add_transaction(sorted_transaction)
+        fp_tree_root.add_transaction(sorted_transaction, node_links)
 
     return EXIT_CODE_SUCCESS
 
