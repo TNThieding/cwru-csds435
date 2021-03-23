@@ -302,6 +302,62 @@ def gr_windy(data_set: Set[DataRecord]) -> float:
     return gain / iv
 
 
+def _gini_set(data_set: Set[DataRecord]) -> float:
+    """Calculate the Gini index of data set."""
+    gini = 1.0
+
+    gini -= math.pow(len([record for record in data_set if record.play]) / len(data_set), 2)
+    gini -= math.pow(len([record for record in data_set if not record.play]) / len(data_set), 2)
+
+    return gini
+
+
+def gini_attribute(data_set: Set[DataRecord], subsets: List[Set[DataRecord]]) -> float:
+    """Calculate the Gini index based on the partitioning attribute subsets."""
+    gini_index = 0.0
+
+    for subset in subsets:
+        proportion = len(subset) / len(data_set)
+        gini_index += proportion * _gini_set(subset)
+
+    return gini_index
+
+
+def gini_outlook(data_set: Set[DataRecord]) -> float:
+    """Calculate Gini index on condition outlook."""
+    return gini_attribute(data_set, subsets=[
+        {record for record in data_set if record.outlook == "sunny"},
+        {record for record in data_set if record.outlook == "rainy"},
+        {record for record in data_set if record.outlook == "overcast"},
+    ])
+
+
+def gini_temperature(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate Gini index and split point based on temperature."""
+    _, split_point = gain_temperature(data_set)  # use gain function only to get split point
+    return gini_attribute(data_set, subsets=[
+        {record for record in data_set if record.temperature <= split_point},
+        {record for record in data_set if record.temperature > split_point}
+    ]), split_point
+
+
+def gini_humidity(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate Gini index and split point based on humidity."""
+    _, split_point = gain_humidity(data_set)  # use gain function only to get split point
+    return gini_attribute(data_set, subsets=[
+        {record for record in data_set if record.humidity <= split_point},
+        {record for record in data_set if record.humidity > split_point},
+    ]), split_point
+
+
+def gini_windy(data_set: Set[DataRecord]) -> float:
+    """Calculate Gini index based on whether it's windy."""
+    return gini_attribute(data_set, subsets=[
+        {record for record in data_set if record.windy},
+        {record for record in data_set if not record.windy},
+    ])
+
+
 def _generate_decision_tree_for_condition(
     parent_node: TreeNode,
     subset: Set[DataRecord],
@@ -377,7 +433,7 @@ def generate_decision_tree(
     if "windy" in attributes:
         gain_value_map["windy"] = heuristic_functions["windy"](data_set)
 
-    selected_attribute = max(gain_value_map, key=gain_value_map.get)
+    selected_attribute = heuristic_functions["SELECTION_FUNCTION"](gain_value_map, key=gain_value_map.get)
     node.label = selected_attribute.capitalize()
 
     # Handle the continuous case.
@@ -452,7 +508,7 @@ def main() -> int:
     argument_parser = ArgumentParser(description=main.__doc__)
     argument_parser.add_argument(
         "heuristic",
-        help="selection heuristic (valid choices are information_gain, gain_ratio)",
+        help="selection heuristic (valid choices are information_gain, gain_ratio, gini_index)",
     )
     args = argument_parser.parse_args()
 
@@ -465,6 +521,7 @@ def main() -> int:
             "temperature": gain_temperature,
             "humidity": gain_humidity,
             "windy": gain_windy,
+            "SELECTION_FUNCTION": max,
         }
     elif args.heuristic.lower() == "gain_ratio":
         information_gain_functions = {
@@ -472,6 +529,15 @@ def main() -> int:
             "temperature": gr_temperature,
             "humidity": gr_humidity,
             "windy": gr_windy,
+            "SELECTION_FUNCTION": max,
+        }
+    elif args.heuristic.lower() == "gini_index":
+        information_gain_functions = {
+            "outlook": gini_outlook,
+            "temperature": gini_temperature,
+            "humidity": gini_humidity,
+            "windy": gini_windy,
+            "SELECTION_FUNCTION": min,
         }
     else:
         raise ValueError(f"unknown selection heuristic {args.heuristic}")
