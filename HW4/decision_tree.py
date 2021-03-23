@@ -8,9 +8,10 @@ Written for CSDS 435: Data Mining (Spring 2021)
 import math
 import sys
 from dataclasses import dataclass
-from typing import Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 EXIT_CODE_SUCCESS = 0
+
 
 def log2_zero(x) -> float:
     """Take base-2 logarithm of x and return 0 if domain error occurs."""
@@ -35,6 +36,25 @@ class DataRecord:
 
     def __hash__(self) -> int:
         return hash((self.outlook, self.temperature, self.humidity, self.windy, self.play))
+
+
+class TreeNode:
+
+    """Represent node in a decision tree."""
+
+    def __init__(self, label: Optional[str] = None):
+        self.label: Optional[str] = label
+        self.branches: List[TreeEdge] = []
+
+
+class TreeEdge:
+
+    """Represent an edge in the decision tree."""
+
+    def __init__(self, origin: TreeNode, destination: Optional[TreeNode], condition: Optional[str] = None):
+        self.origin = origin
+        self.destination = destination
+        self.condition = condition
 
 
 def make_training_data_set() -> Set[DataRecord]:
@@ -169,6 +189,22 @@ def ires_windy(data_set: Set[DataRecord]) -> float:
     ires_value += proportion_not_windy * entropy(not_windy)
 
     return ires_value
+
+
+def generate_decision_tree(data_set, attribute_list) -> TreeNode:
+    node = TreeNode()
+
+    return node
+
+
+def dump_tree(node: TreeNode, current_depth: int = 0) -> None:
+    """Dump tree representation to console."""
+    indentation = 4 * current_depth * " "
+    print(indentation + node.label)
+
+    for branch in [b for b in node.branches if b.destination]:
+        print(indentation + 2 * " " + branch.condition)
+        dump_tree(branch.destination, current_depth + 1)
 
 
 def main() -> int:
