@@ -7,8 +7,9 @@ Written for CSDS 435: Data Mining (Spring 2021)
 
 import math
 import sys
+from argparse import ArgumentParser
 from dataclasses import dataclass
-from typing import List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 EXIT_CODE_SUCCESS = 0
 
@@ -126,7 +127,7 @@ def entropy(data_set: Set[DataRecord]) -> float:
     return entropy_value
 
 
-def _ires_continuous(
+def _gain_continuous(
     data_set: Set[DataRecord], attribute_name: str
 ) -> Tuple[float, float]:
     """Calculate Ires and corresponding split point based on a continuous attribute."""
@@ -202,11 +203,11 @@ def _ires_continuous(
             smallest_ires = candidate_ires
             split_point_for_smallest = candidate_split_point
 
-    return smallest_ires, split_point_for_smallest
+    return entropy(data_set) - smallest_ires, split_point_for_smallest
 
 
-def ires_outlook(data_set: Set[DataRecord]) -> float:
-    """Calculate Ires based on condition outlook."""
+def gain_outlook(data_set: Set[DataRecord]) -> float:
+    """Calculate gain based on condition outlook."""
     ires_value = 0.0
 
     sunny = {record for record in data_set if record.outlook == "sunny"}
@@ -221,20 +222,20 @@ def ires_outlook(data_set: Set[DataRecord]) -> float:
     proportion_rainy = len(rainy) / len(data_set)
     ires_value += proportion_rainy * entropy(rainy)
 
-    return ires_value
+    return entropy(data_set) - ires_value
 
 
-def ires_temperature(data_set: Set[DataRecord]) -> Tuple[float, float]:
-    """Calculate Ires and split point based on temperature."""
-    return _ires_continuous(data_set, attribute_name="temperature")
+def gain_temperature(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate gain and split point based on temperature."""
+    return _gain_continuous(data_set, attribute_name="temperature")
 
 
-def ires_humidity(data_set: Set[DataRecord]) -> Tuple[float, float]:
-    """Calculate Ires and split point based on humidity."""
-    return _ires_continuous(data_set, attribute_name="humidity")
+def gain_humidity(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate gain and split point based on humidity."""
+    return _gain_continuous(data_set, attribute_name="humidity")
 
 
-def ires_windy(data_set: Set[DataRecord]) -> float:
+def gain_windy(data_set: Set[DataRecord]) -> float:
     """Calculate Ires based on it's windy."""
     ires_value = 0.0
 
@@ -246,7 +247,7 @@ def ires_windy(data_set: Set[DataRecord]) -> float:
     proportion_not_windy = len(not_windy) / len(data_set)
     ires_value += proportion_not_windy * entropy(not_windy)
 
-    return ires_value
+    return entropy(data_set) - ires_value
 
 
 def _generate_decision_tree_for_condition(
@@ -257,8 +258,9 @@ def _generate_decision_tree_for_condition(
     condition: str,
     played_count: int,
     not_played_count: int,
+    heuristic_functions: Dict[str, Callable],
 ) -> None:
-    """Utility function to grow a branch and recurse with error handling."""
+    """Utility function to grow a branch and recurse with error handling and branch creation."""
     # If there's not a subset, attach a leaf labeled with the most common class int the samples.
     if not subset:
         child = TreeNode()
@@ -270,15 +272,19 @@ def _generate_decision_tree_for_condition(
     # Otherwise, recurse and attach the returned node.
     else:
         child = generate_decision_tree(
-            subset, attributes.difference({selected_attribute})
+            subset,
+            attributes.difference({selected_attribute}),
+            heuristic_functions,
         )
 
     parent_node.branches.append(TreeEdge(parent_node, child, condition.capitalize()))
 
 
-# TODO: When generalizing to support different selection criteria, change attribute list to be a tuple of names and
-#  test functions. Any cleaner ideas?
-def generate_decision_tree(data_set: Set[DataRecord], attributes: Set[str]) -> TreeNode:
+def generate_decision_tree(
+    data_set: Set[DataRecord],
+    attributes: Set[str],
+    heuristic_functions: Dict[str, Callable],
+) -> TreeNode:
     node = TreeNode()
 
     # If all samples are of the same class, then return a labeled leaf node.
@@ -302,112 +308,78 @@ def generate_decision_tree(data_set: Set[DataRecord], attributes: Set[str]) -> T
 
         return node
 
-    # Find lowest Ires value.
-    # TODO: This area could use some cleanup to be less hard coded.
-    ires_value_map = {}
+    # Find highest gain value.
+    gain_value_map = {}
     split_points = {}
 
     if "outlook" in attributes:
-        ires_value_map["outlook"] = ires_outlook(data_set)
+        gain_value_map["outlook"] = heuristic_functions["outlook"](data_set)
     if "temperature" in attributes:
-        ires, split = ires_temperature(data_set)
-        ires_value_map["temperature"] = ires
+        gain, split = heuristic_functions["temperature"](data_set)
+        gain_value_map["temperature"] = gain
         split_points["temperature"] = split
     if "humidity" in attributes:
-        ires, split = ires_humidity(data_set)
-        ires_value_map["humidity"] = ires
+        gain, split = heuristic_functions["humidity"](data_set)
+        gain_value_map["humidity"] = gain
         split_points["humidity"] = split
     if "windy" in attributes:
-        ires_value_map["windy"] = ires_windy(data_set)
+        gain_value_map["windy"] = heuristic_functions["windy"](data_set)
 
-    selected_attribute = min(ires_value_map, key=ires_value_map.get)
+    selected_attribute = max(gain_value_map, key=gain_value_map.get)
     node.label = selected_attribute.capitalize()
 
-    # TODO: Like above, this area could use some cleanup to be less hard coded.
-    if selected_attribute == "outlook":
-        for condition in ["sunny", "overcast", "rainy"]:
+    # Handle the continuous case.
+    if selected_attribute in ["temperature", "humidity"]:
+        node.label += f" (Split @ {split_points[selected_attribute]})"
+
+        _generate_decision_tree_for_condition(
+            parent_node=node,
+            subset={
+                record
+                for record in data_set
+                if getattr(record, selected_attribute)
+                <= split_points[selected_attribute]
+            },
+            attributes=attributes,
+            selected_attribute=selected_attribute,
+            condition="<=",
+            played_count=played_count,
+            not_played_count=not_played_count,
+            heuristic_functions=heuristic_functions,
+        )
+
+        _generate_decision_tree_for_condition(
+            parent_node=node,
+            subset={
+                record
+                for record in data_set
+                if getattr(record, selected_attribute)
+                > split_points[selected_attribute]
+            },
+            attributes=attributes,
+            selected_attribute=selected_attribute,
+            condition=">",
+            played_count=played_count,
+            not_played_count=not_played_count,
+            heuristic_functions=heuristic_functions,
+        )
+
+    # Handle the discrete case.
+    if selected_attribute in ["outlook", "windy"]:
+        for condition in {getattr(record, selected_attribute) for record in data_set}:
             _generate_decision_tree_for_condition(
                 parent_node=node,
-                subset={record for record in data_set if record.outlook == condition},
-                attributes=attributes,
-                selected_attribute=selected_attribute,
-                condition=condition,
-                played_count=played_count,
-                not_played_count=not_played_count,
-            )
-
-    if selected_attribute == "temperature":
-        condition = "<= " + str(split_points["temperature"])
-        _generate_decision_tree_for_condition(
-            parent_node=node,
-            subset={
-                record
-                for record in data_set
-                if record.temperature <= split_points["temperature"]
-            },
-            attributes=attributes,
-            selected_attribute=selected_attribute,
-            condition=condition,
-            played_count=played_count,
-            not_played_count=not_played_count,
-        )
-
-        condition = "> " + str(split_points["temperature"])
-        _generate_decision_tree_for_condition(
-            parent_node=node,
-            subset={
-                record
-                for record in data_set
-                if record.temperature > split_points["temperature"]
-            },
-            attributes=attributes,
-            selected_attribute=selected_attribute,
-            condition=condition,
-            played_count=played_count,
-            not_played_count=not_played_count,
-        )
-
-    if selected_attribute == "humidity":
-        condition = "<= " + str(split_points["humidity"])
-        _generate_decision_tree_for_condition(
-            parent_node=node,
-            subset={
-                record
-                for record in data_set
-                if record.humidity <= split_points["humidity"]
-            },
-            attributes=attributes,
-            selected_attribute=selected_attribute,
-            condition=condition,
-            played_count=played_count,
-            not_played_count=not_played_count,
-        )
-
-        condition = "> " + str(split_points["humidity"])
-        _generate_decision_tree_for_condition(
-            parent_node=node,
-            subset={
-                record
-                for record in data_set
-                if record.humidity > split_points["humidity"]
-            },
-            attributes=attributes,
-            selected_attribute=selected_attribute,
-            condition=condition,
-            played_count=played_count,
-            not_played_count=not_played_count,
-        )
-
-    if selected_attribute == "windy":
-        for condition in [True, False]:
-            _generate_decision_tree_for_condition(
-                parent_node=node,
-                subset={record for record in data_set if record.windy == condition},
+                subset={
+                    record
+                    for record in data_set
+                    if getattr(record, selected_attribute) == condition
+                },
                 attributes=attributes,
                 selected_attribute=selected_attribute,
                 condition=str(condition),
                 played_count=played_count,
                 not_played_count=not_played_count,
+                heuristic_functions=heuristic_functions,
             )
 
     return node
@@ -425,10 +397,29 @@ def dump_tree(node: TreeNode, current_depth: int = 0) -> None:
 
 def main() -> int:
     """Generate decision tree for tennis data set."""
+    argument_parser = ArgumentParser(description=main.__doc__)
+    argument_parser.add_argument(
+        "heuristic",
+        help="selection heuristic (valid choices are information_gain)",
+    )
+    args = argument_parser.parse_args()
+
     starting_attributes = {"outlook", "temperature", "humidity", "windy"}
     training_data_set = make_training_data_set()
 
-    tree = generate_decision_tree(training_data_set, starting_attributes)
+    if args.heuristic.lower() == "information_gain":
+        information_gain_functions = {
+            "outlook": gain_outlook,
+            "temperature": gain_temperature,
+            "humidity": gain_humidity,
+            "windy": gain_windy,
+        }
+    else:
+        raise ValueError(f"unknown selection heuristic {args.heuristic}")
+
+    tree = generate_decision_tree(
+        training_data_set, starting_attributes, information_gain_functions
+    )
     dump_tree(tree)
 
     return EXIT_CODE_SUCCESS
