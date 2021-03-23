@@ -236,7 +236,7 @@ def gain_humidity(data_set: Set[DataRecord]) -> Tuple[float, float]:
 
 
 def gain_windy(data_set: Set[DataRecord]) -> float:
-    """Calculate Ires based on it's windy."""
+    """Calculate Ires based on whether it's windy."""
     ires_value = 0.0
 
     windy = {record for record in data_set if record.windy}
@@ -248,6 +248,58 @@ def gain_windy(data_set: Set[DataRecord]) -> float:
     ires_value += proportion_not_windy * entropy(not_windy)
 
     return entropy(data_set) - ires_value
+
+
+def _iv(data_set: Set[DataRecord], subsets: List[Set[DataRecord]]) -> float:
+    """Calculate IV(A) function using the provided subsets."""
+    iv_value = 0.0
+
+    for subset in subsets:
+        proportion = len(subset) / len(data_set)
+        iv_value -= proportion * log2_zero(proportion)
+
+    return iv_value
+
+
+def gr_outlook(data_set: Set[DataRecord]) -> float:
+    """Calculate gain ratio on condition outlook."""
+    gain = gain_outlook(data_set)
+    iv = _iv(data_set, subsets=[
+        {record for record in data_set if record.outlook == "sunny"},
+        {record for record in data_set if record.outlook == "rainy"},
+        {record for record in data_set if record.outlook == "overcast"},
+    ])
+    return gain / iv
+
+
+def gr_temperature(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate gain ratio and split point based on temperature."""
+    gain, split_point = gain_temperature(data_set)
+    iv = _iv(data_set, subsets=[
+        {record for record in data_set if record.temperature <= split_point},
+        {record for record in data_set if record.temperature > split_point},
+    ])
+    return gain / iv, split_point
+
+
+def gr_humidity(data_set: Set[DataRecord]) -> Tuple[float, float]:
+    """Calculate gain ratio and split point based on humidity."""
+    gain, split_point = gain_humidity(data_set)
+    iv = _iv(data_set, subsets=[
+        {record for record in data_set if record.humidity <= split_point},
+        {record for record in data_set if record.humidity > split_point},
+    ])
+    return gain / iv, split_point
+
+
+def gr_windy(data_set: Set[DataRecord]) -> float:
+    """Calculate gain ratio based on whether it's windy."""
+    gain = gain_windy(data_set)
+    iv = _iv(data_set, subsets=[
+        {record for record in data_set if record.windy},
+        {record for record in data_set if not record.windy},
+    ])
+    return gain / iv
 
 
 def _generate_decision_tree_for_condition(
@@ -400,7 +452,7 @@ def main() -> int:
     argument_parser = ArgumentParser(description=main.__doc__)
     argument_parser.add_argument(
         "heuristic",
-        help="selection heuristic (valid choices are information_gain)",
+        help="selection heuristic (valid choices are information_gain, gain_ratio)",
     )
     args = argument_parser.parse_args()
 
@@ -413,6 +465,13 @@ def main() -> int:
             "temperature": gain_temperature,
             "humidity": gain_humidity,
             "windy": gain_windy,
+        }
+    elif args.heuristic.lower() == "gain_ratio":
+        information_gain_functions = {
+            "outlook": gr_outlook,
+            "temperature": gr_temperature,
+            "humidity": gr_humidity,
+            "windy": gr_windy,
         }
     else:
         raise ValueError(f"unknown selection heuristic {args.heuristic}")
