@@ -110,18 +110,54 @@ def dump_weights_and_bias(neurons_map: Dict[int, "Neuron"], title: str) -> None:
     for neuron_id in range(3, 8):  # iterates from 3 to 7 inclusive
         print(f"θ{neuron_id}  = {neurons_map[neuron_id].bias}")
 
+    print()
+    print()
+
 
 def main() -> int:
     """Train artificial neural network using backpropagation."""
     argument_parser = ArgumentParser(description=main.__doc__)
     argument_parser.add_argument("i1", type=float, help="neuron 1 input")
     argument_parser.add_argument("i2", type=float, help="neuron 2 input")
-    argument_parser.add_argument("class", help="output class (valid choices are nail or screw)")
+    argument_parser.add_argument("assigned_class", help="output class (valid choices are nail or screw)")
     argument_parser.add_argument("--iterations", default=1, type=int, help="training iterations to run")
     args = argument_parser.parse_args()
 
+    if args.assigned_class.lower() == "nail":
+        c6 = 1
+        c7 = 0
+    elif args.assigned_class.lower() == "screw":
+        c6 = 0
+        c7 = 1
+    else:
+        raise ValueError(f"unknown class {args.assigned_class}")
+
     neurons_map = construct_initial_neural_network(args.i1, args.i2)
-    dump_weights_and_bias(neurons_map, "Initial")
+    dump_weights_and_bias(neurons_map, "Initial Weights and Biases")
+
+    for iteration in range(1, args.iterations + 1):
+        # Start by calculating error. (The neuron class includes conveniences for getting output from net input.)
+        # First, make a mapping from neuron ID to error for the output layer.
+        errors = {
+            7: neurons_map[7].output * (1 - neurons_map[7].output) * (c7 - neurons_map[7].output),
+            6: neurons_map[6].output * (1 - neurons_map[6].output) * (c6 - neurons_map[6].output),
+        }
+
+        # Then, update the error map to include the hidden layer.
+        for hidden_layer_id in range(3, 6):  # iterates from 3 to 5 inclusive
+            weighted_summation = 0
+            for output_layer_id in range(6, 8):  # iterates from 6 to 7 inclusive
+                weighted_summation += (
+                    errors[output_layer_id] * neurons_map[output_layer_id].weight_from(hidden_layer_id)
+                )
+
+            errors[hidden_layer_id] = (
+                    neurons_map[hidden_layer_id].output * (1 - neurons_map[hidden_layer_id].output) * weighted_summation
+            )
+
+        # TODO: Calculate updated
+
+        dump_weights_and_bias(neurons_map, title=f"Iteration {iteration}")
 
     return EXIT_CODE_SUCCESS
 
