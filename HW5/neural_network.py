@@ -22,10 +22,12 @@ class Neuron:
         self._inputs: List[Tuple[float, "Neuron"]] = []  # tuples of weights and neurons
 
     def add_input(self, initial_weight: float, neuron: "Neuron") -> None:
+        """Add weighted input to this neuron."""
         self._inputs.append((initial_weight, neuron))
 
     @property
     def output(self) -> float:
+        """Compute neuron output."""
         net_input = self.bias
 
         for input_weight, input_neuron in self._inputs:
@@ -33,11 +35,25 @@ class Neuron:
 
         return 1 / (1 + math.exp(-net_input))
 
-    def weight_from(self, neuron_id: int) -> float:
+    @property
+    def input_ids(self) -> List[int]:
+        """Get list of neuron IDs that feed into this neuron."""
+        return [input_neuron.id for _, input_neuron in self._inputs]
+
+    def get_weight_from(self, neuron_id: int) -> float:
         """Get weight from specified neuron to this neuron."""
         for input_weight, input_neuron in self._inputs:
             if input_neuron.id == neuron_id:
                 return input_weight
+
+        raise ValueError(f"no input neuron with ID {neuron_id}")
+
+    def set_weight_from(self, neuron_id: int, new_weight: float) -> None:
+        """Set weight from specified neuron to this neuron."""
+        for input_index, (input_weight, input_neuron) in enumerate(self._inputs):
+            if input_neuron.id == neuron_id:
+                self._inputs[input_index] = (new_weight, input_neuron)
+                return
 
         raise ValueError(f"no input neuron with ID {neuron_id}")
 
@@ -90,22 +106,22 @@ def dump_weights_and_bias(neurons_map: Dict[int, "Neuron"], title: str) -> None:
     print("=" * len(title))
     print()
 
-    print(f"w13 = {neurons_map[3].weight_from(1)}")
-    print(f"w14 = {neurons_map[4].weight_from(1)}")
-    print(f"w15 = {neurons_map[5].weight_from(1)}")
+    print(f"w13 = {neurons_map[3].get_weight_from(1)}")
+    print(f"w14 = {neurons_map[4].get_weight_from(1)}")
+    print(f"w15 = {neurons_map[5].get_weight_from(1)}")
 
-    print(f"w23 = {neurons_map[3].weight_from(2)}")
-    print(f"w24 = {neurons_map[4].weight_from(2)}")
-    print(f"w25 = {neurons_map[5].weight_from(2)}")
+    print(f"w23 = {neurons_map[3].get_weight_from(2)}")
+    print(f"w24 = {neurons_map[4].get_weight_from(2)}")
+    print(f"w25 = {neurons_map[5].get_weight_from(2)}")
 
-    print(f"w36 = {neurons_map[6].weight_from(3)}")
-    print(f"w37 = {neurons_map[7].weight_from(3)}")
+    print(f"w36 = {neurons_map[6].get_weight_from(3)}")
+    print(f"w37 = {neurons_map[7].get_weight_from(3)}")
 
-    print(f"w46 = {neurons_map[6].weight_from(4)}")
-    print(f"w47 = {neurons_map[7].weight_from(4)}")
+    print(f"w46 = {neurons_map[6].get_weight_from(4)}")
+    print(f"w47 = {neurons_map[7].get_weight_from(4)}")
 
-    print(f"w56 = {neurons_map[6].weight_from(5)}")
-    print(f"w57 = {neurons_map[7].weight_from(5)}")
+    print(f"w56 = {neurons_map[6].get_weight_from(5)}")
+    print(f"w57 = {neurons_map[7].get_weight_from(5)}")
 
     for neuron_id in range(3, 8):  # iterates from 3 to 7 inclusive
         print(f"θ{neuron_id}  = {neurons_map[neuron_id].bias}")
@@ -121,6 +137,7 @@ def main() -> int:
     argument_parser.add_argument("i2", type=float, help="neuron 2 input")
     argument_parser.add_argument("assigned_class", help="output class (valid choices are nail or screw)")
     argument_parser.add_argument("--iterations", default=1, type=int, help="training iterations to run")
+    argument_parser.add_argument("--learning_rate", default=0.1, type=float, help="learning rate")
     args = argument_parser.parse_args()
 
     if args.assigned_class.lower() == "nail":
@@ -136,11 +153,15 @@ def main() -> int:
     dump_weights_and_bias(neurons_map, "Initial Weights and Biases")
 
     for iteration in range(1, args.iterations + 1):
+        # Cache away current outputs for quicker lookup. Also prevents issues when updating weights since now the
+        # outputs won't change dynamically as the weights are tweaked.
+        outputs = {neuron_id: neurons_map[neuron_id].output for neuron_id in range(1, 8)}
+
         # Start by calculating error. (The neuron class includes conveniences for getting output from net input.)
         # First, make a mapping from neuron ID to error for the output layer.
         errors = {
-            7: neurons_map[7].output * (1 - neurons_map[7].output) * (c7 - neurons_map[7].output),
-            6: neurons_map[6].output * (1 - neurons_map[6].output) * (c6 - neurons_map[6].output),
+            7: outputs[7] * (1 - outputs[7]) * (c7 - outputs[7]),
+            6: outputs[6] * (1 - outputs[6]) * (c6 - outputs[6]),
         }
 
         # Then, update the error map to include the hidden layer.
@@ -148,14 +169,24 @@ def main() -> int:
             weighted_summation = 0
             for output_layer_id in range(6, 8):  # iterates from 6 to 7 inclusive
                 weighted_summation += (
-                    errors[output_layer_id] * neurons_map[output_layer_id].weight_from(hidden_layer_id)
+                    errors[output_layer_id] * neurons_map[output_layer_id].get_weight_from(hidden_layer_id)
                 )
 
             errors[hidden_layer_id] = (
-                    neurons_map[hidden_layer_id].output * (1 - neurons_map[hidden_layer_id].output) * weighted_summation
+                    outputs[hidden_layer_id] * (1 - outputs[hidden_layer_id]) * weighted_summation
             )
 
-        # TODO: Calculate updated
+        # Calculate updated weights.
+        for dest_neuron_id in range(3, 8):  # iterates from 3 to 7 inclusive
+            for src_neuron_id in neurons_map[dest_neuron_id].input_ids:
+                updated_weight = neurons_map[dest_neuron_id].get_weight_from(src_neuron_id)
+                updated_weight += args.learning_rate * errors[dest_neuron_id] * outputs[src_neuron_id]
+
+                neurons_map[dest_neuron_id].set_weight_from(src_neuron_id, updated_weight)
+
+        # Calculate update biases.
+        for neuron_id in range(3, 8):  # iterates from 3 to 7 inclusive
+            neurons_map[neuron_id].bias += args.learning_rate * errors[neuron_id]
 
         dump_weights_and_bias(neurons_map, title=f"Iteration {iteration}")
 
