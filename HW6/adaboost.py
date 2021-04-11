@@ -3,10 +3,6 @@
 Code by Tyler N. Thieding (tnt36)
 Written for CSDS 435: Data Mining (Spring 2021)
 
-Third-Party Dependencies:
-
-* numpy
-
 Runtime Notes:
 
 * This program uses the "weights for data instances" distribution of LIBSVM available under the LIBSVM tools page:
@@ -47,7 +43,7 @@ def main() -> int:
         trained_linear_kernel = libsvm_weights_svmutil.svm_train(weights[iteration], y_train, x_train, "-t 0")
         trained_svms[iteration] = trained_linear_kernel
 
-        predicted_labels, (linear_accuracy, _, _), _ = libsvm_weights_svmutil.svm_predict(
+        predicted_labels, _, _ = libsvm_weights_svmutil.svm_predict(
             y_train, x_train, trained_linear_kernel
         )
 
@@ -82,7 +78,7 @@ def main() -> int:
     for svm_machine_idx in range(len(trained_svms)):
         predicted_labels, _, _ = libsvm_weights_svmutil.svm_predict(y_test, x_test, trained_svms[svm_machine_idx])
         for label_idx in range(len(predicted_labels)):
-            predictions_by_instance[label_idx] += weights[svm_machine_idx][label_idx] * predicted_labels[label_idx]
+            predictions_by_instance[label_idx] += alphas[svm_machine_idx] * predicted_labels[label_idx]
 
     # Calculate the accuracy of the predictions.
     final_hypotheses = [1.0 if instance >= 0 else -1.0 for instance in predictions_by_instance]
@@ -93,6 +89,9 @@ def main() -> int:
             correct_count += 1
 
     print(f"AdaBoost Test Accuracy: {correct_count / len(final_hypotheses) * 100}%")
+
+    import pdb
+    pdb.set_trace()
 
     return EXIT_CODE_SUCCESS
 
