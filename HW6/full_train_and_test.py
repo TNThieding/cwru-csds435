@@ -3,10 +3,6 @@
 Code by Tyler N. Thieding (tnt36)
 Written for CSDS 435: Data Mining (Spring 2021)
 
-Third-Party Dependencies:
-
-* numpy
-
 Runtime Dependencies:
 
 * Requires environment variable named ``CSDS_435_LIBSVM`` containing the path to the LIBSVM library.
