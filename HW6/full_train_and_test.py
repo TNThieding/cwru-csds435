@@ -16,8 +16,6 @@ Runtime Dependencies:
 import os
 import sys
 
-import numpy as np
-
 try:
     libsvm_path = os.environ["CSDS_435_LIBSVM"]
 except KeyError:
