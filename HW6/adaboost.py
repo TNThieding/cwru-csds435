@@ -5,20 +5,25 @@ Written for CSDS 435: Data Mining (Spring 2021)
 
 Runtime Notes:
 
-* This program uses the "weights for data instances" distribution of LIBSVM available under the LIBSVM tools page:
-  https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/#weights_for_data_instances
+* Requires environment variable named ``CSDS_435_LIBSVM`` containing the path to the LIBSVM library.
 
 """
 
 import math
 import os
+import random
 import sys
 from argparse import ArgumentParser
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "libsvm-weights-3.24", "python"))
+try:
+    libsvm_path = os.environ["CSDS_435_LIBSVM"]
+except KeyError:
+    raise RuntimeError("set environment variable CSDS_435_LIBSVM to point to LIBSVM download")
+else:
+    sys.path.append(os.path.join(libsvm_path, "python"))
 
-import commonutil as libsvm_weights_commonutil
-import svmutil as libsvm_weights_svmutil
+import commonutil as libsvm_commonutil
+import svmutil as libsvm_svmutil
 
 EXIT_CODE_SUCCESS = 0
 TRAIN_DATA_PATH = os.path.join(os.path.dirname(__file__), "DogsVsCats.train")
@@ -31,7 +36,7 @@ def main() -> int:
     argument_parser.add_argument("--iterations", default=10, type=int, help="number of boosting iterations")
     args = argument_parser.parse_args()
 
-    y_train, x_train = libsvm_weights_commonutil.svm_read_problem(TRAIN_DATA_PATH)
+    y_train, x_train = libsvm_commonutil.svm_read_problem(TRAIN_DATA_PATH)
 
     trained_svms = {}
     weights = {
@@ -40,10 +45,18 @@ def main() -> int:
     alphas = {}
 
     for iteration in range(args.iterations):
-        trained_linear_kernel = libsvm_weights_svmutil.svm_train(weights[iteration], y_train, x_train, "-t 0")
+        # From textbook: "In round i, the tuples from D are sampled to form a training set, Di , of size d. Sampling
+        # with replacement is used  -- the same tuple may be selected more than once. Each tuple’s chance of being
+        # selected is based on its weight."
+        chosen_indicies = random.choices([i for i in range(len(x_train))], weights=weights[iteration], k=len(x_train))
+
+        y_i = [y_train[idx] for idx in chosen_indicies]
+        x_i = [x_train[idx] for idx in chosen_indicies]
+
+        trained_linear_kernel = libsvm_svmutil.svm_train(y_i, x_i, "-t 0")
         trained_svms[iteration] = trained_linear_kernel
 
-        predicted_labels, _, _ = libsvm_weights_svmutil.svm_predict(
+        predicted_labels, _, _ = libsvm_svmutil.svm_predict(
             y_train, x_train, trained_linear_kernel
         )
 
@@ -72,11 +85,11 @@ def main() -> int:
     assert len(trained_svms) == len(alphas)
 
     # Make prediction using the stored models and their weights.
-    y_test, x_test = libsvm_weights_commonutil.svm_read_problem(TEST_DATA_PATH)
+    y_test, x_test = libsvm_commonutil.svm_read_problem(TEST_DATA_PATH)
     predictions_by_instance = [0 for _ in range(len(y_test))]
 
     for svm_machine_idx in range(len(trained_svms)):
-        predicted_labels, _, _ = libsvm_weights_svmutil.svm_predict(y_test, x_test, trained_svms[svm_machine_idx])
+        predicted_labels, _, _ = libsvm_svmutil.svm_predict(y_test, x_test, trained_svms[svm_machine_idx])
         for label_idx in range(len(predicted_labels)):
             predictions_by_instance[label_idx] += alphas[svm_machine_idx] * predicted_labels[label_idx]
 
@@ -89,9 +102,6 @@ def main() -> int:
             correct_count += 1
 
     print(f"AdaBoost Test Accuracy: {correct_count / len(final_hypotheses) * 100}%")
-
-    import pdb
-    pdb.set_trace()
 
     return EXIT_CODE_SUCCESS
 
